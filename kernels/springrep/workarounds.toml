@@ -5,7 +5,6 @@
 "swept/coil-spring-pushed-aslant-through-plate" = "no sweep of a whole spring: the spring is swept in six half-turn pieces"
 "swept/cone-point-screwed-through-rod" = "no sweep of a whole tool: the tool is cut to the rod's reach before the sweep"
 "swept/cube-spun-on-its-diagonal-inside-a-block" = "no sweep of a solid"
-"swept/drafted-slot-screwed-through-rod" = "no sweep of a whole tool: the tool is cut to the rod's reach before the sweep"
 "swept/fine-thread-with-sharp-crests" = "no sweep of a whole tool: the tool is cut to the rod's reach before the sweep"
 "swept/flat-ring-swung-partway-into-ring-sector" = "no sweep of a solid"
 "swept/ring-lying-flat-turned-whole" = "no sweep of a solid"

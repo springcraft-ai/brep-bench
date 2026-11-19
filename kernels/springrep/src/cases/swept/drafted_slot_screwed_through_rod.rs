@@ -10,7 +10,7 @@ use springrep::sweep::solid;
 use springrep::topo::Brep;
 
 use crate::shared::e;
-use crate::shared::swept::{arc, deg, line, outline, rod, screwing, v3, within};
+use crate::shared::swept::{arc, deg, line, outline, rod, screwing, v3};
 
 /// The slot in the plane x = `x`, drawn in (y, z): half discs of radius `r` about (±1.5, 0) and the
 /// rectangle between them.
@@ -34,9 +34,6 @@ pub fn build() -> Result<Brep, String> {
         "bar",
     )
     .map_err(e)?;
-    // No sweep of the whole tool: a screw keeps each point's distance from the z axis, so only the
-    // tool within 5.5 of it reaches the rod, and only that part is swept.
-    let tip = within(&bar, 5.5)?;
-    let swept = solid(&tip, &screwing(6.0, deg(-90.0), deg(1350.0)), "screw").map_err(e)?;
+    let swept = solid(&bar, &screwing(6.0, deg(-90.0), deg(1350.0)), "screw").map_err(e)?;
     difference(&rod()?, &swept).map_err(e)
 }
