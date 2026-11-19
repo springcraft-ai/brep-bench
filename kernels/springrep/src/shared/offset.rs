@@ -1,13 +1,12 @@
-//! Helpers shared by the offset cases: the inward offset springrep's `offset` declines, made from
-//! its outward one, and the meridian plane the turned solids are drawn on.
+//! Helpers shared by the offset cases: springrep's offset outward and inward, and the meridian
+//! plane the turned solids are drawn on.
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 use springrep::blend::fillet;
-use springrep::boolean::{difference, split, union};
+use springrep::boolean::{split, union};
 use springrep::edit::offset;
 use springrep::math::{Frame, Vec2, Vec3};
-use springrep::measure;
-use springrep::primitive::{block, cone, cylinder, sphere};
+use springrep::primitive::{cone, cylinder, sphere};
 use springrep::profile::{NamedSegment, Profile};
 use springrep::sweep::{extrude, revolve};
 use springrep::topo::Brep;
@@ -21,22 +20,10 @@ pub fn grown(s: &Brep, d: f64) -> Result<Brep, String> {
     offset(s, d, "grown").map_err(e)
 }
 
-/// `s` shrunk by `d`: every point of `s` at least `d` from its outside. springrep's `offset`
-/// refuses an inward distance, but the points of `s` within `d` of its outside are the points of
-/// `s` that its complement grown by `d` covers. So the complement, a block reaching well past `s`
-/// with `s` taken out of it (a solid with a cavity), is grown by `d`, and taken from `s`: the
-/// cavity's faces move into `s`, where `s`'s concave edges, the complement's convex ones, are
-/// rounded and its convex edges stay sharp, as an inward offset makes them.
+/// `s` shrunk by `d`: every point of `s` at least `d` from its outside, springrep's own offset
+/// by `−d` (faces moved in, concave edges rounded, convex ones kept sharp).
 pub fn shrunk(s: &Brep, d: f64) -> Result<Brep, String> {
-    let bounds = measure::bbox(s);
-    let margin = 2. * d + 1.;
-    let pad = Vec3::new(margin, margin, margin);
-    let corner = bounds.min - pad;
-    let size = bounds.max - bounds.min + pad * 2.;
-    let around = block(&at(corner.to_array()), size, "around").map_err(e)?;
-    let outside = difference(&around, s).map_err(e)?;
-    let near = offset(&outside, d, "near").map_err(e)?;
-    difference(s, &near).map_err(e)
+    offset(s, -d, "shrunk").map_err(e)
 }
 
 /// The xz plane as a sketch plane: sketch x along world x, sketch y along world z, so a meridian
