@@ -1,55 +1,46 @@
 //! Helpers for the loft cases: a solid whose level sections are rectangles centred on the z axis,
-//! the half-widths along x and y each set by a planar Bézier guide.
-use springrep::boolean::intersection;
-use springrep::math::Vec2;
-use springrep::profile::{NamedSegment, Profile, Segment};
-use springrep::sweep::extrude;
+//! their corners on four mirrored cubic Bézier guides.
+use springrep::geom::{Curve, NurbsCurve};
+use springrep::loft::{Guide, Section, loft_guided};
+use springrep::math::{Vec2, Vec3};
+use springrep::profile::Profile;
 use springrep::topo::Brep;
 
-use super::{e, frame};
+use super::{at, e};
 
-/// The region in a vertical sketch plane (sketch x across, sketch y up) between the cubic Bézier
-/// `(w, z)` through `guide` and its mirror image `(−w, z)`, closed by the floor and the top (where the guide ends off the axis).
-fn between(guide: [(f64, f64); 4]) -> Profile {
-    let p = |(w, z): (f64, f64)| Vec2::new(w, z);
-    let q = |(w, z): (f64, f64)| Vec2::new(-w, z);
-    let cubic = |pts: [Vec2; 4]| Segment::Bezier {
-        ctrl: pts.to_vec(),
-        weights: vec![1.; 4],
-    };
-    let [a, b, c, d] = guide;
-    let mut outline = vec![
-        NamedSegment::line(q(a), p(a), "floor"),
-        NamedSegment::new(cubic([p(a), p(b), p(c), p(d)]), "wall"),
-    ];
-    // a guide that ends on the axis closes the region in a point, with no top
-    if d.0 != 0. {
-        outline.push(NamedSegment::line(p(d), q(d), "top"));
+/// The rectangle |x| ≤ p, |y| ≤ q at height z, for the guide's point (p, q, z).
+fn rectangle([p, q, z]: [f64; 3]) -> Section {
+    Section {
+        profile: Profile::rect(Vec2::ZERO, 2. * p, 2. * q),
+        frame: at([0., 0., z]),
     }
-    outline.push(NamedSegment::new(cubic([q(d), q(c), q(b), q(a)]), "wall"));
-    Profile::outline(outline)
 }
 
 /// The solid whose section at each height is the rectangle |x| ≤ p, |y| ≤ q, where the guide
-/// through the corner with x, y > 0 is the cubic Bézier `(p, q, z)` on `guide`.
-///
-/// Each wall is swept by a level segment parallel to y (or x) between two guides, so it is the
-/// guide's curve in the xz plane (or the yz plane) carried straight along y (or x): the solid is
-/// the common part of the region under the (p, z) curve extruded along y and the region under the
-/// (q, z) curve extruded along x.
+/// through the corner with x, y > 0 is the cubic Bézier `(p, q, z)` on `guide`, and the other three
+/// guides its mirror images in the xz plane, the yz plane and both. A guide that ends on the axis
+/// closes the solid in a point there.
 pub fn on_guides(guide: [[f64; 3]; 4], feature: &str) -> Result<Brep, String> {
-    let reach = 4.
-        * guide
-            .iter()
-            .flat_map(|g| [g[0].abs(), g[1].abs()])
-            .fold(0., f64::max);
-    let in_x = guide.map(|g| (g[0], g[2]));
-    let in_y = guide.map(|g| (g[1], g[2]));
-    // the xz plane moved back to y = −reach (sketch x along x, sketch y up), extruded along +y
-    let xz = frame([0., -reach, 0.], [0., 1., 0.], [-1., 0., 0.])?;
-    // the yz plane moved back to x = −reach (sketch x along y, sketch y up), extruded along +x
-    let yz = frame([-reach, 0., 0.], [1., 0., 0.], [0., 1., 0.])?;
-    let across_x = extrude(&between(in_x), &xz, 2. * reach, feature).map_err(e)?;
-    let across_y = extrude(&between(in_y), &yz, 2. * reach, feature).map_err(e)?;
-    intersection(&across_x, &across_y).map_err(e)
+    let guides = [(1., 1.), (-1., 1.), (-1., -1.), (1., -1.)]
+        .iter()
+        .map(|&(sx, sy)| {
+            let pts = guide
+                .iter()
+                .map(|g| Vec3::new(sx * g[0], sy * g[1], g[2]))
+                .collect();
+            let knots = vec![0., 0., 0., 0., 1., 1., 1., 1.];
+            let cubic = NurbsCurve::new(3, knots, pts, None).map_err(e)?;
+            Ok(Guide {
+                curve: Curve::Nurbs(Box::new(cubic)),
+                range: (0., 1.),
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let [foot, .., top] = guide;
+    if top[0] == 0. && top[1] == 0. {
+        let apex = Some(Vec3::new(0., 0., top[2]));
+        loft_guided(&[rectangle(foot)], &guides, apex, feature).map_err(e)
+    } else {
+        loft_guided(&[rectangle(foot), rectangle(top)], &guides, None, feature).map_err(e)
+    }
 }

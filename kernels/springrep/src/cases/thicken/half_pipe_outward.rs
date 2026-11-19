@@ -7,16 +7,16 @@ use springrep::profile::{NamedSegment, Profile};
 use springrep::sweep::extrude;
 use springrep::topo::Brep;
 
-use crate::shared::thicken::thickened;
+use crate::shared::thicken::{sheet_of, thickened_sheet};
 use crate::shared::{at, e};
 
 pub fn build() -> Result<Brep, String> {
     // the sheet is the curved face of the half cylinder, the half disk y >= 0 of radius 5 extruded
-    // 10 along z; its flat face, y = 0, holds the sheet's normals at its straight edges
+    // 10 along z, taken alone; its normal points away from the axis
     let half_disk = Profile::outline(vec![
         NamedSegment::arc(Vec2::ZERO, 5., 0., PI, "skin"),
         NamedSegment::line(Vec2::new(-5., 0.), Vec2::new(5., 0.), "flat"),
     ]);
     let half = extrude(&half_disk, &at([0., 0., 0.]), 10., "pipe").map_err(e)?;
-    thickened(&half, &["pipe.skin"], 1.)
+    thickened_sheet(&sheet_of(&half, &["pipe.skin"])?, 1., 0.)
 }

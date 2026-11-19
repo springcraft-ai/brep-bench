@@ -1,7 +1,37 @@
 //! The box (−8, −8, −8)–(8, 8, 0) less everything a bull-nose mill whose axis leans 30° passes
 //! through as it slides straight down by 8.
+use std::f64::consts::PI;
+
+use springrep::boolean::difference;
+use springrep::profile::Profile;
+use springrep::sweep::{Motion, solid};
 use springrep::topo::Brep;
 
+use crate::shared::e;
+use crate::shared::swept::{arc, boxed, deg, line, outline, revolved, v3};
+
+/// The bull-nose mill's half meridian, drawn out from its axis and along it from its flat end's
+/// middle: flat to 1.5, a round of radius 0.5, a side of radius 2 up to 3.
+fn bull_nose() -> Profile {
+    outline(vec![
+        line((0.0, 0.0), (1.5, 0.0), "end"),
+        arc((1.5, 0.5), 0.5, -PI / 2.0, PI / 2.0, "round"),
+        line((2.0, 0.5), (2.0, 3.0), "side"),
+        line((2.0, 3.0), (0.0, 3.0), "top"),
+        line((0.0, 3.0), (0.0, 0.0), "axis"),
+    ])
+}
+
 pub fn build() -> Result<Brep, String> {
-    Err("springrep has no sweep of a solid. Leaning, the mill's round touches what the push sweeps along a curve where its normal is level, which lies in no plane: the hole's wall is that curve carried down, an upright surface over the round's outline seen from above, an offset of an ellipse that springrep cannot make".into())
+    let stock = boxed([-8.0, -8.0, -8.0], [8.0, 8.0, 0.0], "block")?;
+    let (s, c) = deg(30.0).sin_cos();
+    let mill = revolved(
+        &bull_nose(),
+        v3(0.0, 0.0, 4.0),
+        v3(s, 0.0, c),
+        v3(c, 0.0, -s),
+        "mill",
+    )?;
+    let swept = solid(&mill, &Motion::Slide(v3(0.0, 0.0, -8.0)), "push").map_err(e)?;
+    difference(&stock, &swept).map_err(e)
 }

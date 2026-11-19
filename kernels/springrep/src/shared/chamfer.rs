@@ -1,14 +1,16 @@
 //! Helpers shared by the chamfer cases: solids turned about the z axis from a meridian drawn in
-//! (ρ, z), solids cut by half-spaces, and the cone a chamfer given by a distance and an angle lies
-//! on, turned the same way.
+//! (ρ, z), half-spaces, and rims chamfered by a distance and an angle or by two distances.
 use std::f64::consts::TAU;
 
-use springrep::boolean::{difference, union};
+use springrep::blend::{EdgeName, chamfer_distance_angle, chamfer_two_edges};
+use springrep::boolean::union;
+use springrep::geom::Curve;
 use springrep::math::{Frame, Vec2, Vec3};
+use springrep::pick::{edges_named, faces_named};
 use springrep::primitive::block;
 use springrep::profile::{NamedSegment, Profile};
 use springrep::sweep::revolve;
-use springrep::topo::Brep;
+use springrep::topo::{Brep, EdgeId};
 
 use crate::shared::e;
 
@@ -31,13 +33,6 @@ pub fn turned(segments: Vec<NamedSegment>, feature: &str) -> Result<Brep, String
     .map_err(e)
 }
 
-/// The solid the polygon `points` (in (ρ, z)) sweeps turned about the z axis.
-pub fn turned_polygon(points: &[Vec2], feature: &str) -> Result<Brep, String> {
-    let plane = meridian_plane();
-    let profile = Profile::polygon(points, &[feature]);
-    revolve(&profile, &plane, Vec3::ZERO, Vec3::Z, TAU, feature).map_err(e)
-}
-
 /// The block on the inner side of the plane through `point` with inward normal `inward`, `size`
 /// across and deep, centered on `point` along the plane: a half-space as far as the cases reach.
 /// Its face on the plane is `<feature>.start`.
@@ -49,89 +44,6 @@ pub fn half_space(point: Vec3, inward: Vec3, size: f64, feature: &str) -> Result
         ..f
     };
     block(&f, Vec3::new(size, size, size), feature).map_err(e)
-}
-
-/// `v` turned by `a` radians, counter-clockwise in (ρ, z): toward the axis from a direction
-/// pointing up and out.
-pub fn rotated(v: Vec2, a: f64) -> Vec2 {
-    Vec2::new(v.x * a.cos() - v.y * a.sin(), v.x * a.sin() + v.y * a.cos())
-}
-
-/// The unit vector from `a` toward `b`.
-pub fn toward(a: Vec2, b: Vec2) -> Vec2 {
-    let d = b - a;
-    d * (1. / d.norm())
-}
-
-/// Far enough to run past every solid the chamfer cases build.
-const FAR: f64 = 30.;
-
-/// A convex chamfer of a rim as a cut: `body` less the ring on the side of the chamfer's line
-/// that holds the rim's `corner`, the line from `p` (where the chamfer leaves the face its first
-/// distance is measured on) along `dir` (on across the solid, toward its other face), turned about
-/// the z axis. `away` is a direction from `p` that leaves the solid across the first face's
-/// surface: it bounds the ring there, so that face beyond `p` keeps its material.
-pub fn cut_by_chamfer_cone(
-    body: &Brep,
-    p: Vec2,
-    dir: Vec2,
-    away: Vec2,
-    corner: Vec2,
-) -> Result<Brep, String> {
-    let mut out = Vec2::new(dir.y, -dir.x);
-    if out.dot(corner - p) < 0. {
-        out = -out;
-    }
-    let far = p + dir * FAR;
-    let ring = [p, p + away * FAR, far + out * FAR, far];
-    let ring = turned_polygon(&off_the_axis(&ring), "chamfer")?;
-    difference(body, &ring).map_err(e)
-}
-
-/// The point a chamfer distance `chord` from the edge point `edge` reaches on a face that is a
-/// sphere about `center` in section: `edge` turned about `center` so the chord between them is
-/// `chord` long, counter-clockwise in (ρ, z) when `ccw`.
-pub fn along_sphere(center: Vec2, edge: Vec2, chord: f64, ccw: bool) -> Vec2 {
-    let r = (edge - center).norm();
-    let a = 2. * (chord / (2. * r)).asin();
-    center + rotated(edge - center, if ccw { a } else { -a })
-}
-
-/// The part of the polygon `points` with ρ ≥ 0, which a turn about the z axis can sweep.
-fn off_the_axis(points: &[Vec2]) -> Vec<Vec2> {
-    let mut out = Vec::new();
-    for (i, &a) in points.iter().enumerate() {
-        let b = points[(i + 1) % points.len()];
-        if a.x >= 0. {
-            out.push(a);
-        }
-        if (a.x < 0.) != (b.x < 0.) {
-            out.push(a + (b - a) * (a.x / (a.x - b.x)));
-        }
-    }
-    out.dedup_by(|a, b| a.dist(*b) < 1e-12);
-    out
-}
-
-/// A concave chamfer of a ball's root by a distance and an angle, as a fill: `body` with the
-/// groove between the chamfer's line and the two faces filled, the line from `p` (on the face the
-/// distance is measured on) along `dir` into the ball about the origin. Elsewhere the fill runs
-/// within `body`: from the line's nearest point to the ball's center (or where the line reaches
-/// the axis, if sooner) over to the axis, down it to `low` and back out to under `p`, all inside
-/// the ball or the part it stands in.
-pub fn fill_to_chamfer_cone(body: &Brep, p: Vec2, dir: Vec2, low: f64) -> Result<Brep, String> {
-    let mut f = p + dir * -p.dot(dir);
-    if f.x < 0. {
-        f = p + dir * (p.x / -dir.x);
-    }
-    let mut pts = vec![p, f];
-    if f.x > 1e-9 {
-        pts.push(Vec2::new(0., f.y));
-    }
-    pts.push(Vec2::new(0., low));
-    pts.push(Vec2::new(p.x, low));
-    let ring = turned_polygon(&pts, "chamfer")?;
-    union(body, &ring).map_err(e)
 }
 
 /// The ball of radius 5 about the origin.
@@ -212,52 +124,106 @@ pub fn sector(cos_a: f64) -> Result<Brep, String> {
     )
 }
 
+/// An edge of `b` on the circle about the z axis of radius `rho` at height `z`. A rim split in
+/// pieces between the same two faces gives the first: a blend takes every edge between its faces.
+pub fn rim(b: &Brep, rho: f64, z: f64) -> Result<EdgeId, String> {
+    let on = |id: EdgeId| match &b.edge(id).curve {
+        Some(Curve::Circle(c)) => {
+            let o = c.frame.origin;
+            (c.radius - rho).abs() < 1e-6
+                && o.x.abs() < 1e-6
+                && o.y.abs() < 1e-6
+                && (o.z - z).abs() < 1e-6
+        }
+        _ => false,
+    };
+    b.edge_ids()
+        .find(|&id| on(id))
+        .ok_or_else(|| format!("no circle of radius {rho} at z = {z}"))
+}
+
+/// `body` with its rim of radius `rho` at height `z` chamfered with two distances: `on_first`
+/// across the face named `first`, `on_other` across the other face.
+pub fn rim_by_two_distances(
+    body: &Brep,
+    (rho, z): (f64, f64),
+    first: &str,
+    on_first: f64,
+    on_other: f64,
+) -> Result<Brep, String> {
+    let face = faces_named(body, first)
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("no face named {first}"))?;
+    let edge = rim(body, rho, z)?;
+    chamfer_two_edges(body, edge, face, on_first, on_other, "chamfer").map_err(e)
+}
+
+/// `body` with the one edge where its faces named `first` and `other` meet chamfered by
+/// `distance` across `first`, the chamfer at `angle` (radians) to `first`.
+pub fn by_distance_and_angle(
+    body: &Brep,
+    first: &str,
+    other: &str,
+    distance: f64,
+    angle: f64,
+) -> Result<Brep, String> {
+    let pair = EdgeName {
+        a: first,
+        b: other,
+        exact: true,
+    };
+    let edge = match edges_named(body, &pair).map_err(e)?[..] {
+        [edge] => edge,
+        ref edges => return Err(format!("{} edges where {first} meets {other}", edges.len())),
+    };
+    let face = faces_named(body, first)
+        .into_iter()
+        .next()
+        .ok_or_else(|| format!("no face named {first}"))?;
+    chamfer_distance_angle(body, edge, face, distance, angle, "chamfer").map_err(e)
+}
+
 /// The sector's rim chamfered by `distance` down its cone and the chamfer at `angle` (radians) to
-/// the cone's line continued toward the rim, turned toward the axis.
+/// the cone.
 pub fn sector_rim_by_angle(cos_a: f64, distance: f64, angle: f64) -> Result<Brep, String> {
-    let body = sector(cos_a)?;
-    let up = Vec2::new((1. - cos_a * cos_a).sqrt(), cos_a);
-    let p = up * (5. - distance);
-    // off the cone's side, square to it and away from the sector
-    let away = Vec2::new(up.y, -up.x);
-    cut_by_chamfer_cone(&body, p, rotated(up, angle), away, up * 5.)
+    by_distance_and_angle(
+        &sector(cos_a)?,
+        "sector.cone",
+        "sector.skin",
+        distance,
+        angle,
+    )
 }
 
 /// The capped frustum's rim chamfered by `distance` down its cone and the chamfer at `angle` to
-/// the cone's line continued toward the rim, turned toward the axis.
+/// the cone.
 pub fn capped_frustum_rim_by_angle(distance: f64, angle: f64) -> Result<Brep, String> {
-    let body = capped_frustum()?;
-    let (rim, foot) = (Vec2::new(4., 3.), Vec2::new(2., 0.));
-    let up = toward(foot, rim);
-    let p = rim - up * distance;
-    cut_by_chamfer_cone(&body, p, rotated(up, angle), Vec2::new(up.y, -up.x), rim)
+    by_distance_and_angle(&capped_frustum()?, "cap.side", "cap.dome", distance, angle)
 }
 
-/// The hemisphere's rim chamfered by `distance` in across its flat face and the chamfer rising at
-/// `angle` from it toward the rim.
+/// The hemisphere's rim chamfered by `distance` in across its flat face and the chamfer at `angle`
+/// to that face.
 pub fn hemisphere_rim_by_angle(distance: f64, angle: f64) -> Result<Brep, String> {
-    let body = hemisphere()?;
-    let p = Vec2::new(5. - distance, 0.);
-    let (dir, away) = (rotated(Vec2::new(1., 0.), angle), Vec2::new(0., -1.));
-    cut_by_chamfer_cone(&body, p, dir, away, Vec2::new(5., 0.))
+    by_distance_and_angle(&hemisphere()?, "half.flat", "half.skin", distance, angle)
 }
 
 /// The groove where the ball stands in the conical seat chamfered by `distance` up the seat's cone
-/// and the chamfer at `angle` to the cone's line back toward the edge, turned upward.
+/// and the chamfer at `angle` to the cone.
 pub fn conical_seat_by_angle(distance: f64, angle: f64) -> Result<Brep, String> {
-    let body = ball_in_conical_seat()?;
-    let (edge, rim) = (Vec2::new(4., 3.), Vec2::new(8., 5.));
-    let up = toward(edge, rim);
-    let p = edge + up * distance;
-    fill_to_chamfer_cone(&body, p, rotated(-up, -angle), 2.)
+    by_distance_and_angle(
+        &ball_in_conical_seat()?,
+        "seat.cone",
+        "ball.skin",
+        distance,
+        angle,
+    )
 }
 
 /// The groove where the ball stands on the plate chamfered by `distance` out across the plate's
-/// top and the chamfer rising at `angle` from it back toward the ball.
+/// top and the chamfer at `angle` to the top.
 pub fn plate_rim_by_angle(distance: f64, angle: f64) -> Result<Brep, String> {
-    let body = ball_on_plate()?;
-    let p = Vec2::new(5. + distance, 0.);
-    fill_to_chamfer_cone(&body, p, rotated(Vec2::new(-1., 0.), -angle), -1.)
+    by_distance_and_angle(&ball_on_plate()?, "plate.end", "ball.skin", distance, angle)
 }
 
 /// The sign of each axis for each of the octahedron's eight faces, face `i` named `f<i>`.

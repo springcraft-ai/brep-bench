@@ -2,6 +2,15 @@
 //! nearly square axes, for t from −180° to 180°.
 use springrep::topo::Brep;
 
+use crate::shared::swept::{deg, tumble, tumbled, v3};
+
 pub fn build() -> Result<Brep, String> {
-    Err("springrep has no sweep of a solid. Under two turns about skew axes no line of the torus stays in contact, so the swept solid's boundary is an envelope of the torus's poses of no simpler kind, which springrep cannot make from its profile sweeps".into())
+    let motion = tumble(
+        1.01,
+        -1.0,
+        (deg(1.0), deg(89.0), 0.0),
+        deg(-180.0),
+        deg(180.0),
+    );
+    tumbled(v3(2.02, 0.0, 1.0), 0.16, &motion)
 }

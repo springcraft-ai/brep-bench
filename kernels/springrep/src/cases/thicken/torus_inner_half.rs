@@ -5,11 +5,12 @@ use std::f64::consts::{FRAC_PI_2, PI};
 
 use springrep::topo::Brep;
 
-use crate::shared::thicken::{arc, line, thickened, turned_whole};
+use crate::shared::thicken::{arc, line, sheet_of, thickened_sheet, turned_whole};
 
 pub fn build() -> Result<Brep, String> {
     // the sheet is the inner face of the tube's half toward the axis, closed by the cylinder of
-    // radius 6 through the tube's top and bottom circles, where the sheet's normal is along z
+    // radius 6 through the tube's top and bottom circles, taken alone; its normal points toward
+    // the axis
     let half_tube = turned_whole(
         vec![
             arc([6., 0.], 2., FRAC_PI_2, PI, "skin"),
@@ -17,5 +18,5 @@ pub fn build() -> Result<Brep, String> {
         ],
         "tube",
     )?;
-    thickened(&half_tube, &["tube.skin"], 1.)
+    thickened_sheet(&sheet_of(&half_tube, &["tube.skin"])?, 1., 0.)
 }

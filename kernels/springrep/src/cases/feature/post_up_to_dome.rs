@@ -1,16 +1,12 @@
 //! A closed hollow dome (a plate of radius 20 and a hemispherical shell from 18 to 20 about the
 //! origin, a half-ball cavity inside) with a post of radius 3 extruded up from the cavity's floor
 //! until it meets the inside of the dome, and joined to it.
-//!
-//! springrep has no extrusion up to a face, so the post is extruded up past the cavity's sphere
-//! into the shell, and the union leaves it ending where it meets the sphere.
 use std::f64::consts::{FRAC_PI_2, TAU};
 
 use springrep::boolean::{difference, union};
 use springrep::math::{Vec2, Vec3};
-use springrep::primitive::cylinder;
 use springrep::profile::{NamedSegment, Profile};
-use springrep::sweep::revolve;
+use springrep::sweep::{Meet, extrude_to_next, revolve};
 use springrep::topo::Brep;
 
 use crate::shared::{at, e, frame};
@@ -18,7 +14,15 @@ use crate::shared::{at, e, frame};
 /// The solid the meridian `segments`, in (ρ, z), sweeps about the z axis.
 fn turned(segments: Vec<NamedSegment>, feature: &str) -> Result<Brep, String> {
     let xz = frame([0., 0., 0.], [0., -1., 0.], [1., 0., 0.])?;
-    revolve(&Profile::outline(segments), &xz, Vec3::ZERO, Vec3::Z, TAU, feature).map_err(e)
+    revolve(
+        &Profile::outline(segments),
+        &xz,
+        Vec3::ZERO,
+        Vec3::Z,
+        TAU,
+        feature,
+    )
+    .map_err(e)
 }
 
 pub fn build() -> Result<Brep, String> {
@@ -41,7 +45,9 @@ pub fn build() -> Result<Brep, String> {
         "cavity",
     )?;
     let dome = difference(&outside, &cavity).map_err(e)?;
-    // up from the floor to z = 19, inside the shell
-    let post = cylinder(&at([0., 0., 0.]), 3., 19., "post").map_err(e)?;
+    // up from the floor, z = 0, until it meets the dome's inside
+    let disk = Profile::circle(Vec2::ZERO, 6.);
+    let post =
+        extrude_to_next(&disk, &at([0., 0., 0.]), false, &dome, Meet::Into, "post").map_err(e)?;
     union(&dome, &post).map_err(e)
 }

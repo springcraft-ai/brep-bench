@@ -5,7 +5,13 @@ use springrep::topo::Brep;
 use crate::shared::loft::on_guides;
 
 pub fn build() -> Result<Brep, String> {
-    // springrep lofts through sections only, with no guide curves; the rectangles' walls are each
-    // a guide's plane curve carried straight across, the common part of two extrusions
-    on_guides([[12., 3.2, 0.], [18., -2.8, 8.], [15., 0.2, 19.], [3., 12.2, 24.]], "slab")
+    on_guides(
+        [
+            [12., 3.2, 0.],
+            [18., -2.8, 8.],
+            [15., 0.2, 19.],
+            [3., 12.2, 24.],
+        ],
+        "slab",
+    )
 }

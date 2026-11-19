@@ -1,22 +1,35 @@
 //! Two boxes united on the plane z = 4, where each has a flat B-spline face: (0, 0, 0)–(10, 10, 4)
 //! with a bicubic top and (5, 3, 4)–(15, 13, 7) with a biquadratic bottom.
 use springrep::boolean::union;
-use springrep::primitive::slab;
+use springrep::geom::NurbsSurface;
+use springrep::math::Vec3;
 use springrep::topo::Brep;
 
-use crate::shared::{at, e, frame};
+use crate::shared::e;
+use crate::shared::nurbs::prism;
+
+/// The Bézier patch in the plane z = 4 on the grid `xs` × `ys`, its control points unevenly
+/// spaced.
+fn flat(xs: &[f64], ys: &[f64]) -> Result<NurbsSurface, String> {
+    let (nu, nv) = (xs.len(), ys.len());
+    let ctrl = xs
+        .iter()
+        .flat_map(|&x| ys.iter().map(move |&y| Vec3::new(x, y, 4.)))
+        .collect();
+    let knots = |n: usize| [vec![0.; n], vec![1.; n]].concat();
+    NurbsSurface::new(
+        (nu - 1, nv - 1),
+        (knots(nu), knots(nv)),
+        (nu, nv),
+        ctrl,
+        None,
+    )
+    .map_err(e)
+}
 
 pub fn build() -> Result<Brep, String> {
-    // A slab's top is a B-spline height field; at one height everywhere it is flat. Its control
-    // points stand evenly over the square, not at the case's uneven x and y, which moves no point
-    // of the face: each patch is its square of the plane either way.
-    let cubic = [0., 0., 0., 0., 1., 1., 1., 1.];
-    let lower = slab(&at([0., 0., 0.]), [10., 10.], (&cubic, &cubic), &vec![vec![4.; 4]; 4], "a")
-        .map_err(e)?;
-    // the upper box hangs from its top, z = 7, its B-spline face 3 below it
-    let quadratic = [0., 0., 0., 1., 1., 1.];
-    let hanging = frame([5., 13., 7.], [0., 0., -1.], [1., 0., 0.])?;
-    let upper = slab(&hanging, [10., 10.], (&quadratic, &quadratic), &vec![vec![3.; 3]; 3], "b")
-        .map_err(e)?;
+    let lower = prism(flat(&[0., 2., 7., 10.], &[0., 4., 5., 10.])?, 0., "a")?;
+    // the upper box reaches from its B-spline face at z = 4 up to the plane z = 7
+    let upper = prism(flat(&[5., 12., 15.], &[3., 4., 13.])?, 7., "b")?;
     union(&lower, &upper).map_err(e)
 }

@@ -4,13 +4,12 @@ use springrep::math::Vec2;
 use springrep::profile::{NamedSegment, Segment};
 use springrep::topo::Brep;
 
-use crate::shared::thicken::{line, swept_along_y, thickened};
+use crate::shared::thicken::{line, sheet_of, swept_along_y, thickened_sheet};
 
 pub fn build() -> Result<Brep, String> {
     // The sheet is the quadratic Bezier through (-4, 2), (0, -2), (4, 2), each (x, z), exactly the
-    // parabola, swept along y: the B-spline surface of degree 2 by 1 with no interior knots. It is
-    // a face of the solid above it closed by the planes through its straight edges along its
-    // normals there, which lean in at 45 degrees and meet at (0, 6).
+    // parabola, swept along y: a face of the solid above it up to z = 2, taken alone. Its normal
+    // points away from the focus, so the focus is on its back.
     let parabola = Segment::Bezier {
         ctrl: vec![Vec2::new(-4., 2.), Vec2::new(0., -2.), Vec2::new(4., 2.)],
         weights: vec![1., 1., 1.],
@@ -18,12 +17,10 @@ pub fn build() -> Result<Brep, String> {
     let trough = swept_along_y(
         vec![
             NamedSegment::new(parabola, "sheet"),
-            line([4., 2.], [0., 6.], "right"),
-            line([0., 6.], [-4., 2.], "left"),
+            line([4., 2.], [-4., 2.], "top"),
         ],
         10.,
         "trough",
     )?;
-    // the sheet's outward normal points away from the focus: thicken into the solid
-    thickened(&trough, &["trough.sheet"], -1.)
+    thickened_sheet(&sheet_of(&trough, &["trough.sheet"])?, 0., 1.)
 }

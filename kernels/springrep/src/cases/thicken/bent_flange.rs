@@ -3,9 +3,10 @@
 //! and 3.
 use springrep::topo::Brep;
 
-use crate::shared::thicken::{flange, thickened};
+use crate::shared::thicken::{flange, sheet_of, thickened_sheet};
 
 pub fn build() -> Result<Brep, String> {
-    // the sheet's faces face away from the bend's axis: thicken along their normals
-    thickened(&flange()?, &["flange.floor", "flange.bend", "flange.wall"], 1.)
+    // the sheet's faces face away from the bend's axis: thicken to its front
+    let sheet = sheet_of(&flange()?, &["flange.floor", "flange.bend", "flange.wall"])?;
+    thickened_sheet(&sheet, 1., 0.)
 }

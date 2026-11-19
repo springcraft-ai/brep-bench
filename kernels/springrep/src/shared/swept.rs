@@ -22,16 +22,20 @@
 //!   about the axis that the screw carries through the tool in by one side and out by another,
 //!   along an arc crossing a half-plane through the axis: the tool's section there, screwed
 //!   ([`screwed_prism`]).
+//!
+//! The cases that call springrep's sweep of a solid (`sweep::solid`) take their motions from the
+//! helpers at the end of this file ([`screwing`], [`turning`], [`carried`], [`tumble`]).
 #![allow(dead_code)]
 
 use std::f64::consts::PI;
 
-use springrep::boolean::union_all;
+use springrep::boolean::{intersection, union_all};
 use springrep::edit::{Affine, affine};
+use springrep::geom::{BSpline, Curve};
 use springrep::math::{Frame, Point3, Transform, Vec2, Vec3};
-use springrep::primitive::cylinder;
+use springrep::primitive::{cylinder, torus};
 use springrep::profile::{NamedSegment, Profile};
-use springrep::sweep::{Helix, extrude, helix, revolve};
+use springrep::sweep::{Helix, Motion, extrude, helix, revolve, solid};
 use springrep::topo::Brep;
 
 use crate::shared::e;
@@ -249,27 +253,6 @@ pub fn outline(segments: Vec<NamedSegment>) -> Profile {
     Profile::outline(segments)
 }
 
-/// The flat polygon through `corners` (in order round it) carried along `v`: an oblique prism,
-/// as [`slid`] makes it, on the frame at its first corner with x along its first edge.
-pub fn slid_face(corners: &[Vec3], v: Vec3, feature: &str) -> Result<Brep, String> {
-    let n = corners.len();
-    // Newell's normal
-    let mut normal = Vec3::ZERO;
-    for i in 0..n {
-        let (a, b) = (corners[i], corners[(i + 1) % n]);
-        normal = normal + a.cross(b);
-    }
-    let sketch = Frame::new(corners[0], normal, corners[1] - corners[0]).map_err(e)?;
-    let local: Vec<(f64, f64)> = corners
-        .iter()
-        .map(|&p| {
-            let l = sketch.to_local(p);
-            (l.x, l.y)
-        })
-        .collect();
-    slid(&polygon(&local, feature), &sketch, v, feature)
-}
-
 /// The box about `center` with edges along the orthonormal `axes`, reaching `half[i]` along each.
 pub fn cuboid(
     center: Vec3,
@@ -280,33 +263,6 @@ pub fn cuboid(
     let base = Frame::new(center - axes[2] * half[2], axes[2], axes[0]).map_err(e)?;
     let face = Profile::rect(Vec2::ZERO, 2.0 * half[0], 2.0 * half[1]);
     extrude(&face, &base, 2.0 * half[2], feature).map_err(e)
-}
-
-/// The solid that box fills as it slides along `v`: the box, and each face it leads with carried
-/// along `v` (a point the box passes through lies in it where it starts, or behind a face it has
-/// left: the oblique prisms of the faces whose outward normals lean along `v`).
-pub fn slid_cuboid(
-    center: Vec3,
-    axes: [Vec3; 3],
-    half: [f64; 3],
-    v: Vec3,
-    feature: &str,
-) -> Result<Brep, String> {
-    let mut parts = vec![cuboid(center, axes, half, feature)?];
-    for i in 0..3 {
-        let (j, k) = ((i + 1) % 3, (i + 2) % 3);
-        let lead = v.dot(axes[i]);
-        if lead.abs() < 1e-12 * v.norm() {
-            continue;
-        }
-        let n = axes[i] * lead.signum();
-        let c = center + n * half[i];
-        let (a, b) = (axes[j] * half[j], axes[k] * half[k]);
-        let corners = [c - a - b, c + a - b, c + a + b, c - a + b];
-        parts.push(slid_face(&corners, v, feature)?);
-    }
-    let refs: Vec<&Brep> = parts.iter().collect();
-    unite(&refs)
 }
 
 /// The stadium of the points within `r` of the segment from `(a, 0)` to `(b, 0)` (a < b), in
@@ -471,4 +427,112 @@ pub fn screwed_prism(
     let parts = screwed_prism_parts(base, z0, z1, lead, t0, t1, sections, ends)?;
     let refs: Vec<&Brep> = parts.iter().collect();
     unite(&refs)
+}
+
+/// A tool of revolution about the line through `base` along `axis`: `meridian` drawn with sketch x
+/// along `across` (square to `axis`) and y along `axis`, turned a whole turn about that line.
+pub fn revolved(
+    meridian: &Profile,
+    base: Vec3,
+    axis: Vec3,
+    across: Vec3,
+    feature: &str,
+) -> Result<Brep, String> {
+    let sketch = Frame::new(base, across.cross(axis), across).map_err(e)?;
+    revolve(meridian, &sketch, base, axis, 2.0 * PI, feature).map_err(e)
+}
+
+/// The screw about the z axis rising `lead` a turn, from turn `from` to turn `to` (radians).
+pub fn screwing(lead: f64, from: f64, to: f64) -> Motion {
+    Motion::Screw {
+        screw: screw(lead),
+        from,
+        to,
+    }
+}
+
+/// The turn about the z axis from `from` to `to` (radians).
+pub fn turning(from: f64, to: f64) -> Motion {
+    Motion::Turn {
+        origin: Point3::ZERO,
+        axis: Vec3::Z,
+        from,
+        to,
+    }
+}
+
+/// The motion of the carried cases: along the cubic Bézier curve through (0, 0, 0), (10, 0, 0),
+/// (20, 20, 0) and (30, 20, 0), the tool's x along the curve and its z up.
+pub fn carried() -> Result<Motion, String> {
+    let ctrl = vec![
+        v3(0.0, 0.0, 0.0),
+        v3(10.0, 0.0, 0.0),
+        v3(20.0, 20.0, 0.0),
+        v3(30.0, 20.0, 0.0),
+    ];
+    let knots = vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0];
+    let path = Curve::BSpline(BSpline::new(3, knots, ctrl).map_err(e)?);
+    Ok(Motion::Along {
+        path,
+        range: (0.0, 1.0),
+        up: Vec3::Z,
+    })
+}
+
+/// The part of `tool` within `radius` of the z axis. A screw or a turn about the axis keeps each
+/// point's distance from it, so only that part of a tool can reach anything within that radius.
+pub fn within(tool: &Brep, radius: f64) -> Result<Brep, String> {
+    let reach = cylinder(
+        &crate::shared::at([0.0, 0.0, -100.0]),
+        radius,
+        200.0,
+        "reach",
+    );
+    intersection(tool, &reach.map_err(e)?).map_err(e)
+}
+
+/// The tumble of the tumbling cases as the roll t runs from `from` to `to` (radians): turned by
+/// `rate`·t about the upright line through (2, 0, 0), then by `turn`·t about the line through
+/// (0, h cos ℓ, h sin ℓ) along (cos α, sin α cos ℓ, sin α sin ℓ), for `(ℓ, α, h)`.
+pub fn tumble(rate: f64, turn: f64, (l, a, h): (f64, f64, f64), from: f64, to: f64) -> Motion {
+    Motion::Then(
+        Box::new(Motion::Turn {
+            origin: v3(2.0, 0.0, 0.0),
+            axis: Vec3::Z,
+            from: rate * from,
+            to: rate * to,
+        }),
+        Box::new(Motion::Turn {
+            origin: v3(0.0, h * l.cos(), h * l.sin()),
+            axis: v3(a.cos(), a.sin() * l.cos(), a.sin() * l.sin()),
+            from: turn * from,
+            to: turn * to,
+        }),
+    )
+}
+
+/// The first tumble: a quarter of the roll about the upright line, the roll back about the line
+/// through (0, 0.5, 0.5) along x.
+pub fn tumbling(from: f64, to: f64) -> Motion {
+    tumble(0.25, -1.0, (deg(45.0), 0.0, 0.5f64.sqrt()), from, to)
+}
+
+/// What the torus about the upright line through `center`, of major radius 1 and tube radius
+/// `minor`, passes through under `motion`.
+pub fn tumbled(center: Vec3, minor: f64, motion: &Motion) -> Result<Brep, String> {
+    let ring = torus(&Frame::WORLD.translated(center), 1.0, minor, "ring").map_err(e)?;
+    solid(&ring, motion, "tumble").map_err(e)
+}
+
+/// One of the crossed pair of torus tumbles: turned back about the second line when `turn` is −1,
+/// on when it is 1.
+pub fn crossed(turn: f64) -> Result<Brep, String> {
+    let motion = tumble(
+        0.7,
+        turn,
+        (deg(45.0), deg(20.0), 0.7071),
+        deg(-100.0),
+        deg(100.0),
+    );
+    tumbled(v3(3.0, 0.0, 2.0), 0.22, &motion)
 }

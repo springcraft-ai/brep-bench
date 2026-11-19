@@ -3,12 +3,11 @@
 use springrep::primitive::cylinder;
 use springrep::topo::Brep;
 
-use crate::shared::thicken::thickened;
+use crate::shared::thicken::{sheet_of, thickened_sheet};
 use crate::shared::{at, e};
 
 pub fn build() -> Result<Brep, String> {
-    // the sheet is the side of a solid cylinder; its ends, square to it, are the walls its circles
-    // sweep
+    // the sheet is the side of a solid cylinder, taken alone, its normal away from the axis
     let can = cylinder(&at([0., 0., 0.]), 5., 10., "can").map_err(e)?;
-    thickened(&can, &["can.side"], 1.)
+    thickened_sheet(&sheet_of(&can, &["can.side"])?, 1., 0.)
 }

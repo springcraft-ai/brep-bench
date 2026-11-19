@@ -1,20 +1,19 @@
-//! Helpers for the machining cases. springrep has no sweep of a solid, so what a cutter passes
-//! through is built from its other operations, each by elementary geometry:
+//! Helpers for the machining cases. A program's moves are swept one at a time by springrep's sweep
+//! of a solid ([`run`], [`slide`]). Where that sweep fails (a flat end slid in its own plane), what
+//! a cutter passes through is built from springrep's other operations, each by elementary geometry:
 //!
 //! - an upright cutter moved straight up or down sweeps itself at its lowest tip with its side
 //!   carried up to its top at the highest: a solid of revolution about its axis;
 //! - an upright flat end mill of radius r slid round a closed path in a level plane sweeps
 //!   everything within r of the path, from its tip up its length: the ring between the path's
-//!   region grown by r and shrunk by r (the kernel's region offsets), extruded;
-//! - an upright mill slid along a smooth level path whose curvature stays under 1/r sweeps its
-//!   silhouette (its section through its axis) carried along the path square to it.
+//!   region grown by r and shrunk by r (the kernel's region offsets), extruded.
 use std::f64::consts::{FRAC_PI_2, TAU};
 
-use springrep::math::{Vec2, Vec3};
+use springrep::math::{Transform, Vec2, Vec3};
 use springrep::primitive::block;
 use springrep::profile::region::{Op, Region};
 use springrep::profile::{NamedSegment, Profile};
-use springrep::sweep::{extrude, revolve};
+use springrep::sweep::{Leg, Motion, extrude, revolve, solid};
 use springrep::topo::Brep;
 
 use super::{at, e, frame};
@@ -76,21 +75,6 @@ impl Cutter {
         Profile::outline(segs)
     }
 
-    /// The cutter's section through its axis, both sides, as a profile with sketch x across the
-    /// axis and sketch y up from the tip: what it sweeps as it slides square to that plane.
-    pub fn silhouette(&self) -> Result<Profile, String> {
-        let half = Region::of(&self.half(0.)).map_err(e)?;
-        let mut mirrored = self.half(0.);
-        for lp in &mut mirrored.loops {
-            for s in &mut lp.segments {
-                mirror_x(&mut s.segment);
-            }
-        }
-        let other = Region::of(&mirrored).map_err(e)?;
-        let both = half.combine(&other, Op::Add).map_err(e)?;
-        Ok(both.profiles().map_err(e)?.remove(0))
-    }
-
     /// What the cutter sweeps moving straight up or down at `(x, y)` with its tip between `lo`
     /// and `hi`.
     pub fn plunge(&self, x: f64, y: f64, lo: f64, hi: f64) -> Result<Brep, String> {
@@ -98,26 +82,53 @@ impl Cutter {
         let axis = Vec3::new(x, y, lo);
         revolve(&self.half(hi - lo), &plane, axis, Vec3::Z, TAU, "plunge").map_err(e)
     }
+
+    /// The cutter standing upright with its tip at `tip`.
+    pub fn at(&self, tip: Vec3) -> Result<Brep, String> {
+        self.plunge(tip.x, tip.y, tip.z, tip.z)
+    }
 }
 
-/// A segment mirrored in the sketch's y axis (its direction reversed by the mirror).
-fn mirror_x(s: &mut springrep::profile::Segment) {
-    use springrep::profile::Segment;
-    let m = |v: Vec2| Vec2::new(-v.x, v.y);
-    match s {
-        Segment::Line { a, b } => (*a, *b) = (m(*a), m(*b)),
-        Segment::Arc {
-            center,
-            start,
-            sweep,
-            ..
-        } => {
-            *center = m(*center);
-            *start = std::f64::consts::PI - *start;
-            *sweep = -*sweep;
-        }
-        _ => unreachable!("a cutter's section is lines and arcs"),
+/// What the cutter passes through as its tip runs from `tip`, heading `heading` radians from +x,
+/// along `legs` in its level plane: each leg's sweep (`sweep::solid`), a slide along a line and a
+/// turn about the upright line through an arc's center.
+pub fn run(cutter: &Cutter, tip: Vec3, heading: f64, legs: &[Leg]) -> Result<Vec<Brep>, String> {
+    let (mut p, mut h) = (tip, Vec3::new(heading.cos(), heading.sin(), 0.));
+    let mut cuts = Vec::new();
+    for leg in legs {
+        let (motion, after) = match *leg {
+            Leg::Line { length } => (
+                Motion::Slide(h * length),
+                Transform::translation(h * length),
+            ),
+            Leg::Arc {
+                radius,
+                angle,
+                axis,
+            } => {
+                let origin = p + axis.cross(h) * radius;
+                let motion = Motion::Turn {
+                    origin,
+                    axis,
+                    from: 0.,
+                    to: angle,
+                };
+                (motion, Transform::rotation(origin, axis, angle))
+            }
+            Leg::Turn { .. } | Leg::Miter { .. } => {
+                return Err("a cutter's path turns only along arcs".into());
+            }
+        };
+        cuts.push(solid(&cutter.at(p)?, &motion, "cut").map_err(e)?);
+        (p, h) = (after.point(p), after.vector(h));
     }
+    Ok(cuts)
+}
+
+/// What the cutter passes through as its tip slides straight from `a` to `b`.
+pub fn slide(cutter: &Cutter, a: [f64; 3], b: [f64; 3]) -> Result<Brep, String> {
+    let (a, b) = (Vec3::from_array(a), Vec3::from_array(b));
+    solid(&cutter.at(a)?, &Motion::Slide(b - a), "cut").map_err(e)
 }
 
 /// What an upright flat end mill of `radius` and `length` sweeps running once round the

@@ -1,22 +1,13 @@
 //! The side of the cone frustum about the z axis whose radius runs from 6 at z = 0 to 3 at z = 4, a
 //! sheet, thickened by 1 along its normal away from the axis: a band whose rims sweep cones.
+use springrep::primitive::cone;
 use springrep::topo::Brep;
 
-use crate::shared::thicken::{line, thickened, turned_whole};
+use crate::shared::thicken::{sheet_of, thickened_sheet};
+use crate::shared::{at, e};
 
 pub fn build() -> Result<Brep, String> {
-    // The sheet is the side of a solid of revolution whose faces at its rims run along its normal
-    // there, (4, 3)/5 in (distance from the axis, z): the cones from each rim circle in along that
-    // normal to the axis, which the line from (6, 0) meets at z = -4.5 and the line from (3, 4)
-    // at z = 1.75.
-    let solid = turned_whole(
-        vec![
-            line([0., -4.5], [6., 0.], "below"),
-            line([6., 0.], [3., 4.], "side"),
-            line([3., 4.], [0., 1.75], "above"),
-            line([0., 1.75], [0., -4.5], "axis"),
-        ],
-        "frustum",
-    )?;
-    thickened(&solid, &["frustum.side"], 1.)
+    // the sheet is the side of the solid frustum, taken alone, its normal away from the axis
+    let frustum = cone(&at([0., 0., 0.]), 6., 3., 4., "frustum").map_err(e)?;
+    thickened_sheet(&sheet_of(&frustum, &["frustum.side"])?, 1., 0.)
 }

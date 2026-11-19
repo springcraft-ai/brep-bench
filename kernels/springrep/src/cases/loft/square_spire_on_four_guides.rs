@@ -5,7 +5,8 @@ use springrep::topo::Brep;
 use crate::shared::loft::on_guides;
 
 pub fn build() -> Result<Brep, String> {
-    // no loft with guide curves (nor to a point): the walls are the ridge's plane curve carried
-    // straight across, the common part of two extrusions
-    on_guides([[9., 9., 0.], [15., 15., 8.], [12., 12., 19.], [0., 0., 24.]], "spire")
+    on_guides(
+        [[9., 9., 0.], [15., 15., 8.], [12., 12., 19.], [0., 0., 24.]],
+        "spire",
+    )
 }

@@ -1,14 +1,9 @@
 //! A C-shaped bracket, two arms 40 long joined by a back, with a hole of radius 4 drilled down
-//! through its upper arm and no further.
-//!
-//! springrep has no hole that runs to the next face it comes out of, so the hole is cut as a
-//! cylinder from the upper arm's top down into the gap, where it comes out: through the upper arm
-//! and no further.
+//! through its upper arm and no further: from the arm's top until it comes out of the material.
 use springrep::boolean::difference;
 use springrep::math::Vec2;
-use springrep::primitive::cylinder;
 use springrep::profile::Profile;
-use springrep::sweep::extrude;
+use springrep::sweep::{Meet, extrude, extrude_to_next};
 use springrep::topo::Brep;
 
 use crate::shared::{at, e, frame};
@@ -29,10 +24,21 @@ pub fn build() -> Result<Brep, String> {
             p(40., 30.),
             p(0., 30.),
         ],
-        &["bottom", "lower_end", "lower_top", "back_face", "upper_under", "upper_end", "top", "back"],
+        &[
+            "bottom",
+            "lower_end",
+            "lower_top",
+            "back_face",
+            "upper_under",
+            "upper_end",
+            "top",
+            "back",
+        ],
     );
     let bracket = extrude(&section, &xz, 20., "bracket").map_err(e)?;
-    // from the middle of the gap up through the top, on the axis through (28, 0)
-    let drill = cylinder(&at([28., 0., 15.]), 4., 20., "hole").map_err(e)?;
+    // the disk on the top, z = 30, about (28, 0), drilled down (against +z) out of the upper arm
+    let disk = Profile::circle(Vec2::ZERO, 8.);
+    let top = at([28., 0., 30.]);
+    let drill = extrude_to_next(&disk, &top, true, &bracket, Meet::OutOf, "hole").map_err(e)?;
     difference(&bracket, &drill).map_err(e)
 }

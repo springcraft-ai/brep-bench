@@ -3,9 +3,10 @@
 //! moved 3 turns inside out and drops, and the floor and wall moved meet in a concave edge.
 use springrep::topo::Brep;
 
-use crate::shared::thicken::{flange, thickened};
+use crate::shared::thicken::{flange, sheet_of, thickened_sheet};
 
 pub fn build() -> Result<Brep, String> {
-    // a negative thickness thickens into the solid, toward the bend's axis
-    thickened(&flange()?, &["flange.floor", "flange.bend", "flange.wall"], -3.)
+    // the sheet's faces face away from the bend's axis: the inside of the bend is its back
+    let sheet = sheet_of(&flange()?, &["flange.floor", "flange.bend", "flange.wall"])?;
+    thickened_sheet(&sheet, 0., 3.)
 }

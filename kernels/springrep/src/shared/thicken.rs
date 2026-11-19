@@ -1,10 +1,12 @@
-//! Helpers shared by the thicken cases. springrep has no sheet bodies: its thicken sweeps faces of a
-//! solid along their outward normals (inward for a negative thickness), and the faces round them,
-//! extended, bound the slab at the sheet's edges. So each case's sheet is a face, or faces, of a
-//! solid whose faces at the sheet's edges lie along its normals there.
+//! Helpers shared by the thicken cases. A sheet is faces of a solid taken alone
+//! (`sheet::from_faces`), each keeping its outward normal, its front; `sheet::thicken` thickens it
+//! to its front, its back or both. The cases that thicken faces of a solid in place use
+//! `edit::thicken`, which sweeps the faces along their outward normals and takes the faces round
+//! them, extended, as the walls at their edges.
 #![allow(dead_code)]
 
 use springrep::edit::thicken;
+use springrep::sheet::{self, Corners};
 use springrep::topo::Brep;
 
 use crate::shared::e;
@@ -16,7 +18,21 @@ pub fn thickened(b: &Brep, names: &[&str], thickness: f64) -> Result<Brep, Strin
     let sheet = faces(b, names)?;
     thicken(b, &sheet, thickness).map_err(e)
 }
-pub use crate::shared::shell::edges_where;
+
+/// The sheet of the faces of `b` named `names`, each facing as it does on `b`.
+pub fn sheet_of(b: &Brep, names: &[&str]) -> Result<Brep, String> {
+    sheet::from_faces(b, &faces(b, names)?).map_err(e)
+}
+
+/// `sheet` thickened by `front` along its normals and `back` against them, its corners sharp.
+pub fn thickened_sheet(sheet: &Brep, front: f64, back: f64) -> Result<Brep, String> {
+    sheet::thicken(sheet, front, back, Corners::Sharp, "thick").map_err(e)
+}
+
+/// `sheet` thickened by `front` along its normals and `back` against them, its corners rounded.
+pub fn thickened_rounded(sheet: &Brep, front: f64, back: f64) -> Result<Brep, String> {
+    sheet::thicken(sheet, front, back, Corners::Rounded, "thick").map_err(e)
+}
 
 /// The closed outline `segments` drawn in the xz plane (its x along world x, its y along world z)
 /// and extruded along +y from y = 0 to `length`.

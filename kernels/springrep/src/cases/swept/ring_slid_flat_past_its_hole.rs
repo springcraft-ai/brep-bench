@@ -1,16 +1,14 @@
 //! The solid a ring fills as it slides 15 along x: the torus about the z axis, its tube's centers
 //! 6 from it and its tube of radius 2.
-//!
-//! springrep has no sweep of a solid. The torus is everything within 2 of its tube's center
-//! circle, and the slide, longer than the hole is wide, carries that circle over a stadium: so the
-//! sweep is everything within 2 of the stadium, its middle the stadium's section square to the
-//! slide carried along, and its ends half the ring with its hole filled
-//! (`shared::swept::slid_ring`).
-use springrep::math::Vec3;
+use springrep::math::Frame;
+use springrep::primitive::torus;
+use springrep::sweep::{Motion, solid};
 use springrep::topo::Brep;
 
-use crate::shared::swept::slid_ring;
+use crate::shared::e;
+use crate::shared::swept::v3;
 
 pub fn build() -> Result<Brep, String> {
-    slid_ring(Vec3::ZERO, Vec3::Z, Vec3::X, 6.0, 2.0, 15.0, "ring")
+    let ring = torus(&Frame::WORLD, 6.0, 2.0, "ring").map_err(e)?;
+    solid(&ring, &Motion::Slide(v3(15.0, 0.0, 0.0)), "slide").map_err(e)
 }

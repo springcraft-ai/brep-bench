@@ -6,10 +6,9 @@ use springrep::primitive::block;
 use springrep::topo::Brep;
 
 use crate::shared::nurbs::vault;
-use crate::shared::{at, e, frame};
+use crate::shared::{at, e};
 
 pub fn build() -> Result<Brep, String> {
-    let vaulted = vault(&frame([-12., 0., 0.], [1., 0., 0.], [0., 1., 0.])?)?;
     let above = block(&at([-20., -20., 16.]), Vec3::new(40., 40., 10.), "cut").map_err(e)?;
-    difference(&vaulted, &above).map_err(e)
+    difference(&vault()?, &above).map_err(e)
 }
