@@ -52,7 +52,7 @@ pub fn build() -> Result<Brep, String> {
     };
     // the bore's own boundary circles, its parameter lines v = 0 (z = 2) and v = 1 (z = 8)
     let bore_rim = |v: f64| {
-        let line = bore.iso_curve(false, v).map_err(e)?;
+        let line = bore.iso_curve(false, v);
         Ok::<_, String>(Span::new(Curve::Nurbs(Box::new(line)), 0., 1.))
     };
     // the outer side's seam, where its circles start

@@ -23,7 +23,7 @@ pub fn build() -> Result<Brep, String> {
     let side = NurbsSurface::new((2, 1), knots, (9, 2), ctrl, Some(weights)).map_err(e)?;
     // the flat ends, each bounded by the side's rim at that end
     let disk = |v: f64, name: &str| -> Result<Piece, String> {
-        let rim = Curve::Nurbs(Box::new(side.iso_curve(false, v).map_err(e)?));
+        let rim = Curve::Nurbs(Box::new(side.iso_curve(false, v)));
         Piece::planar(vec![vec![Span::new(rim, 0., 1.)]], name).map_err(e)
     };
     let side_face = Piece::whole(side.clone(), "side").map_err(e)?;

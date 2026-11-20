@@ -52,7 +52,7 @@ fn ring(profile: [(f64, f64); 4]) -> [Net; 4] {
 
 /// The row `i` of `net` as the curve along `v` at `u = i / 3`, for `i` 0 or 3.
 fn row(net: &Net, i: usize) -> Result<Curve, String> {
-    let c = patch(net)?.iso_curve(true, i as f64 / 3.).map_err(e)?;
+    let c = patch(net)?.iso_curve(true, i as f64 / 3.);
     Ok(Curve::Nurbs(Box::new(c)))
 }
 

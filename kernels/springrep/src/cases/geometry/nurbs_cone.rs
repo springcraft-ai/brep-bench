@@ -17,7 +17,7 @@ pub fn build() -> Result<Brep, String> {
     }
     let knots = (CIRCLE_KNOTS.to_vec(), vec![0., 0., 1., 1.]);
     let side = NurbsSurface::new((2, 1), knots, (9, 2), ctrl, Some(weights)).map_err(e)?;
-    let rim = Curve::Nurbs(Box::new(side.iso_curve(false, 0.).map_err(e)?));
+    let rim = Curve::Nurbs(Box::new(side.iso_curve(false, 0.)));
     let base = Piece::planar(vec![vec![Span::new(rim, 0., 1.)]], "base").map_err(e)?;
     let side = Piece::whole(side, "side").map_err(e)?;
     sew(&[side, base], 0., "cone").map_err(e)
